@@ -1,0 +1,105 @@
+import pdfplumber
+import pandas as pd
+import spacy
+from sentence_transformers import SentenceTransformer, util
+
+# Carregar o modelo de linguagem do spaCy
+nlp = spacy.load("en_core_web_sm")
+
+# Carregar o modelo de embeddings de palavras
+model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+
+# Definir termos de busca
+search_terms = [
+    "ethics and artificial intelligence",
+    "ethics and machine learning",
+    "ethics and knowledge engineering and health",
+    "philosophy of technology and health",
+    "ethics and public policy analysis",
+    "ethics and public policy evaluation",
+    "ethics and public policy evaluation in health",
+    "ethics and public policy analysis in health",
+    "machine learning and public policy analysis",
+    "artificial intelligence and public policy analysis",
+    "artificial intelligence and public health policy evaluation",
+    "machine learning and public health policy evaluation",
+    "morality and artificial intelligence",
+    "morality and machine learning",
+    "philosophical technology and health",
+    "technological impact on health",
+    "theory of technology and health",
+    "technology and impact assessment in health",
+    "artificial intelligence and public governance in health",
+    "ethics and program evaluation",
+    "artificial intelligence and program evaluation"
+]
+
+# Função para extrair texto de PDFs
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            text += f"\n[Page {i+1}]\n"
+            text += page.extract_text()
+    return text
+
+# Função para extrair título, autor e ano usando spaCy
+def extract_title_author_year(text):
+    doc = nlp(text)
+    title = ""
+    author = ""
+    year = ""
+    
+    for ent in doc.ents:
+        if ent.label_ == "WORK_OF_ART":
+            title = ent.text
+        elif ent.label_ == "PERSON":
+            author += ent.text + "; "
+        elif ent.label_ == "DATE":
+            year = ent.text
+    
+    author = author.strip("; ")
+    return title, author, year
+
+# Função para identificar as relações no texto usando embeddings
+def identify_focus_area(text):
+    focus_area = []
+    
+    text_embeddings = model.encode(text, convert_to_tensor=True)
+    
+    for term in search_terms:
+        term_embedding = model.encode(term, convert_to_tensor=True)
+        similarity = util.pytorch_cos_sim(term_embedding, text_embeddings).max()
+        
+        if similarity > 0.7:  # Threshold for considering a match
+            focus_area.append(term)
+    
+    return focus_area
+
+# Função para preencher a planilha
+def fill_spreadsheet(pdf_files):
+    data = []
+    
+    for pdf_file in pdf_files:
+        text = extract_text_from_pdf(pdf_file)
+        title, author, year = extract_title_author_year(text)
+        focus_area = identify_focus_area(text)
+        
+        # Exemplo de extração para outras colunas
+        findings = "Principais achados/conclusões..."  # Extraia do texto e adicione a página final
+        ethical_aspects = "Aspectos éticos abordados..."  # Extraia do texto
+        ai_application = "Aplicação de IA..."  # Extraia do texto
+        policy_relevance = "Relevância para avaliação de políticas..."  # Extraia do texto e adicione a página final
+        gaps = "Lacunas apontadas..."  # Extraia do texto
+        
+        data.append([title, f"{author}, {year}", ", ".join(focus_area), findings, ethical_aspects, ai_application, policy_relevance, gaps])
+    
+    df = pd.DataFrame(data, columns=["Título do artigo", "Autor/ano", "Área de foco (ética e IA, ética e políticas, IA e políticas)", 
+                                     "Principais achados/conclusões", "Aspectos éticos abordados", "Aplicação de IA", 
+                                     "Relevância para avaliação de políticas", "Lacunas apontadas"])
+    return df
+
+# Exemplo de uso
+pdf_files = ["arquivo1.pdf", "arquivo2.pdf"]  # Substitua pelos nomes dos seus arquivos
+df = fill_spreadsheet(pdf_files)
+df.to_excel("resultado_avancado_completo.xlsx", index=False)
